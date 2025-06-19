@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const jwt = require('jsonwebtoken')
+const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
 
@@ -13,33 +13,31 @@ app.use(express.json());
 
 const uri = `${process.env.URI}`;
 
+// JWT related API
+app.post("/jwt", async (req, res) => {
+  const user = req.body;
+  const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+    expiresIn: "1hr",
+  });
+  res.send({ token });
+});
 
+// Middleware
+const verifyToken = (req, res, next) => {
+  if (!req.headers.authorization) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+  const token = req.headers.authorization.split(" ")[1];
+  console.log("inside token", token);
 
-   // JWT related API
-    app.post('/jwt', async (req, res) => {
-      const user = req.body;
-      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1hr' })
-      res.send({ token })
-    })
-
-    // Middleware 
-    const verifyToken = (req, res, next) => {
-
-      if (!req.headers.authorization) {
-        return res.status(401).send({ message: 'unauthorized access' });
-
-      }
-      const token = req.headers.authorization.split(' ')[1];
-      console.log('inside token', token);
-
-      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-        if (err) {
-          return res.status(401).send({ message: 'unauthorized Access' });
-        }
-        req.decoded = decoded;
-        next();
-      })
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(401).send({ message: "unauthorized Access" });
     }
+    req.decoded = decoded;
+    next();
+  });
+};
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -75,6 +73,15 @@ async function run() {
       try {
         const id = req.params.id;
         const query = { _id: id };
+        if(!query){
+          const query1 = { _id: new ObjectId(id) }
+          const result1 = await topsell.findOne(query1);
+           if (result1) {
+          res.status(200).json(result1);
+        } else {
+          res.status(404).json({ message: "Document not found" });
+        }
+        }
         const result = await topsell.findOne(query);
 
         if (result) {
@@ -90,7 +97,7 @@ async function run() {
 
     // Cart Route
     // add card
-    app.post("/cart/add",verifyToken, async (req, res) => {
+    app.post("/cart/add", verifyToken, async (req, res) => {
       try {
         const { userEmail, productId, quantity } = req.body;
         console.log(userEmail);
@@ -101,7 +108,7 @@ async function run() {
             .json({ message: "Email, productId, and quantity are required." });
         }
 
-        const product = await topsell.findOne({ _id: (productId) });
+        const product = await topsell.findOne({ _id: productId });
 
         if (!product) {
           return res
@@ -157,109 +164,169 @@ async function run() {
         res.status(500).json({ message: "A server error occurred." });
       }
     });
-// fetch card
-app.get('/cart/:email',verifyToken, async (req, res) => {
-  try {
-    const email = req.params.email;
+    // fetch card
+    app.get("/cart/:email", verifyToken, async (req, res) => {
+      try {
+        const email = req.params.email;
 
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
+        if (!email) {
+          return res.status(400).json({ error: "Email is required" });
+        }
 
-    const query = { userEmail: email };
-    const result = await cartdb.findOne(query);
+        const query = { userEmail: email };
+        const result = await cartdb.findOne(query);
 
-    if (!result) {
-      return res.status(404).json({ message: 'Cart not found' });
-    }
+        if (!result) {
+          return res.status(404).json({ message: "Cart not found" });
+        }
 
-    res.status(200).json(result);
-  } catch (error) {
-    console.error('Error fetching cart:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-// delete Cart
-app.delete("/cart/remove",verifyToken, async (req, res) => {
-  try {
-    const { userEmail, productId } = req.body;
-
-    if (!userEmail || !productId) {
-      return res.status(400).json({ message: "Email and productId are required." });
-    }
-
-    const result = await cartdb.updateOne(
-      { userEmail: userEmail },
-      {
-        $pull: {
-          items: { productId: new ObjectId(productId) },
-        },
+        res.status(200).json(result);
+      } catch (error) {
+        console.error("Error fetching cart:", error);
+        res.status(500).json({ error: "Internal Server Error" });
       }
-    );
+    });
 
-    if (result.modifiedCount === 0) {
-      return res.status(404).json({ message: "Item not found or already removed." });
-    }
+    // delete Cart
+    app.delete("/cart/remove", verifyToken, async (req, res) => {
+      try {
+        const { userEmail, productId } = req.body;
 
-    res.status(200).json({ message: "Item removed from cart successfully." });
-  } catch (error) {
-    console.error("Remove Cart Item Error:", error);
-    res.status(500).json({ message: "A server error occurred." });
-  }
-});
+        if (!userEmail || !productId) {
+          return res
+            .status(400)
+            .json({ message: "Email and productId are required." });
+        }
 
+        const result = await cartdb.updateOne(
+          { userEmail: userEmail },
+          {
+            $pull: {
+              items: { productId: new ObjectId(productId) },
+            },
+          }
+        );
 
-// Praced
-app.post("/checkout", verifyToken, async (req, res) => {
-  try {
-    const { userEmail } = req.body;
+        if (result.modifiedCount === 0) {
+          return res
+            .status(404)
+            .json({ message: "Item not found or already removed." });
+        }
 
-    if (!userEmail) {
-      return res.status(400).json({ message: "User email is required." });
-    }
+        res
+          .status(200)
+          .json({ message: "Item removed from cart successfully." });
+      } catch (error) {
+        console.error("Remove Cart Item Error:", error);
+        res.status(500).json({ message: "A server error occurred." });
+      }
+    });
 
-    const userCart = await cartdb.findOne({ userEmail });
+    // Praced
+    app.post("/checkout", verifyToken, async (req, res) => {
+      try {
+        const { userEmail } = req.body;
 
-    if (!userCart || userCart.items.length === 0) {
-      return res.status(404).json({ message: "Cart is empty." });
-    }
+        if (!userEmail) {
+          return res.status(400).json({ message: "User email is required." });
+        }
 
-    const order = {
-      userEmail,
-      items: userCart.items,
-      createdAt: new Date(),
-      status: ""
-    };
+        const userCart = await cartdb.findOne({ userEmail });
 
-    await ordersdb.insertOne(order);
+        if (!userCart || userCart.items.length === 0) {
+          return res.status(404).json({ message: "Cart is empty." });
+        }
 
-    for (const item of userCart.items) {
-      await topsell.updateOne(
-        { _id:(item.productId) },
-        { $inc: { sold: Number(item.quantity) } }
-      );
-    }
+        const order = {
+          userEmail,
+          items: userCart.items,
+          createdAt: new Date(),
+          status: "placed",
+        };
 
-    await cartdb.updateOne(
-      { userEmail },
-      { $set: { items: [] } }
-    );
+        await ordersdb.insertOne(order);
 
-    res.status(200).json({ message: "Order placed, cart cleared, and sold count updated." });
-  } catch (error) {
-    console.error("Checkout error:", error);
-    res.status(500).json({ message: "Something went wrong during checkout." });
-  }
-});
+        for (const item of userCart.items) {
+          await topsell.updateOne(
+            { _id: item._id },
 
+            {
+              $inc: {
+                sold: Number(item.quantity),
+                purchaseCount: Number(item.quantity),
+              },
+            }
+          );
+        }
 
+        await cartdb.updateOne({ userEmail }, { $set: { items: [] } });
+
+        res.status(200).json({
+          message:
+            "Order placed, cart cleared, and sold & purchase count updated.",
+        });
+      } catch (error) {
+        console.error("Checkout error:", error);
+        res
+          .status(500)
+          .json({ message: "Something went wrong during checkout." });
+      }
+    });
+
+    //  add food
+    app.post("/add/topfood", async (req, res) => {
+      try {
+        const newFood = req.body;
+
+        if (
+          !newFood.foodName ||
+          !Array.isArray(newFood.foodImage) ||
+          newFood.foodImage.length === 0 ||
+          !newFood.foodCategory ||
+          typeof newFood.totalQuantity !== "number" ||
+          typeof newFood.price !== "number" ||
+          !newFood.description ||
+          !newFood.addedBy ||
+          !newFood.addedBy.name ||
+          !newFood.addedBy.email
+        ) {
+          return res
+            .status(400)
+            .json({
+              message: "Invalid food data. Please fill in all required fields.",
+            });
+        }
+
+        newFood.createdAt = new Date();
+        newFood.purchaseCount = newFood.purchaseCount || 0;
+
+        const result = await topsell.insertOne(newFood);
+
+        if (result.insertedId) {
+          res
+            .status(201)
+            .json({
+              message: "Food item added to top food successfully.",
+              insertedId: result.insertedId,
+            });
+        } else {
+          res.status(500).json({ message: "Failed to insert the food item." });
+        }
+      } catch (error) {
+        console.error("Error in /add/topfood:", error);
+        res
+          .status(500)
+          .json({ message: "Server error while adding food item." });
+      }
+    });
+
+    // End
 
     // Server Health Check and Confirmation
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
 
     // Start the server only after the database connection is successful
     app.listen(port, () => {
