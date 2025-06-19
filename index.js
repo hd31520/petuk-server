@@ -345,6 +345,55 @@ async function run() {
       }
     });
 
+
+
+    app.get('/my-added/:email', verifyToken, async (req, res) => {
+    try {
+        const email = req.params.email;
+
+        if (!email) {
+            return res.status(400).json({ message: "Email is required" });
+        }
+
+        const result = await topsell.find({ "addedBy.email": email }).toArray();
+
+        res.status(200).json(result);
+    } catch (error) {
+        console.error('Error fetching user added products:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
+
+app.delete("/food/delete/:id", verifyToken, async (req, res) => {
+  const id = req.params.id;
+  try {
+    const result = await topsell.deleteOne({ _id: new ObjectId(id) });
+    res.send(result);
+  } catch (error) {
+    console.error("Delete error:", error);
+    res.status(500).json({ message: "Failed to delete product" });
+  }
+});
+
+
+
+app.put('/food/edit/:id', async (req, res) => {
+  const id = req.params.id;
+  const updatedFood = req.body;
+  try {
+    const result = await topsell.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updatedFood }
+    );
+    res.send(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to update food item" });
+  }
+});
+
+
     // End
 
     // Server Health Check and Confirmation
