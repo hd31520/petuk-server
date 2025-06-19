@@ -73,14 +73,14 @@ async function run() {
       try {
         const id = req.params.id;
         const query = { _id: id };
-        if(!query){
-          const query1 = { _id: new ObjectId(id) }
+        if (!query) {
+          const query1 = { _id: new ObjectId(id) };
           const result1 = await topsell.findOne(query1);
-           if (result1) {
-          res.status(200).json(result1);
-        } else {
-          res.status(404).json({ message: "Document not found" });
-        }
+          if (result1) {
+            res.status(200).json(result1);
+          } else {
+            res.status(404).json({ message: "Document not found" });
+          }
         }
         const result = await topsell.findOne(query);
 
@@ -273,8 +273,37 @@ async function run() {
       }
     });
 
+    const { ObjectId } = require("mongodb");
+
+    app.get("/checkout/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+         console.log(email)
+
+        if (!email) {
+          return res.status(400).json({ message: "Email is required." });
+        }
+
+        const orders = await ordersdb.find({ userEmail: email }).toArray();;
+        // console.log(orders)
+
+        if (!orders || orders.length === 0) {
+          return res
+            .status(404)
+            .json({ message: "No orders found for this email." });
+        }
+
+        res.status(200).json(orders);
+      } catch (error) {
+        console.error("Error fetching orders by email:", error);
+        res
+          .status(500)
+          .json({ message: "Server error while fetching orders." });
+      }
+    });
+
     //  add food
-    app.post("/add/topfood", async (req, res) => {
+    app.post("/add/topfood", verifyToken, async (req, res) => {
       try {
         const newFood = req.body;
 
@@ -290,11 +319,9 @@ async function run() {
           !newFood.addedBy.name ||
           !newFood.addedBy.email
         ) {
-          return res
-            .status(400)
-            .json({
-              message: "Invalid food data. Please fill in all required fields.",
-            });
+          return res.status(400).json({
+            message: "Invalid food data. Please fill in all required fields.",
+          });
         }
 
         newFood.createdAt = new Date();
@@ -303,12 +330,10 @@ async function run() {
         const result = await topsell.insertOne(newFood);
 
         if (result.insertedId) {
-          res
-            .status(201)
-            .json({
-              message: "Food item added to top food successfully.",
-              insertedId: result.insertedId,
-            });
+          res.status(201).json({
+            message: "Food item added to top food successfully.",
+            insertedId: result.insertedId,
+          });
         } else {
           res.status(500).json({ message: "Failed to insert the food item." });
         }
