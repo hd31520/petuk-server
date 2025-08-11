@@ -443,6 +443,57 @@ async function run() {
       const result = await userdb.deleteOne(query);
       res.send(result);
     });
+    // --- New Dashboard Data Routes (Admin Only) ---
+    
+    // Get general admin statistics
+    app.get('/admin-stats', verifyToken, verifyAdmin, async (req, res) => {
+        try {
+            const usersCount = await userdb.countDocuments();
+            const ordersCount = await ordersdb.countDocuments();
+            const totalSalesResult = await ordersdb.aggregate([
+                { $unwind: '$items' },
+                { $group: { _id: null, total: { $sum: '$items.price' } } }
+            ]).toArray();
+
+            const totalSales = totalSalesResult.length > 0 ? totalSalesResult[0].total : 0;
+
+            res.send({ usersCount, ordersCount, totalSales });
+        } catch (error) {
+            console.error("Error fetching admin stats:", error);
+            res.status(500).send({ message: "Internal Server Error" });
+        }
+    });
+
+    // Get order data for the chart
+    app.get('/order-stats', verifyToken, verifyAdmin, async (req, res) => {
+        try {
+            const result = await ordersdb.aggregate([
+                {
+                    $group: {
+                        _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } },
+                        totalOrders: { $sum: 1 },
+                        totalSales: { $sum: { $sum: "$items.price" } }
+                    }
+                },
+                {
+                    $sort: { _id: 1 }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        name: "$_id",
+                        orders: "$totalOrders",
+                        sales: "$totalSales"
+                    }
+                }
+            ]).toArray();
+
+            res.send(result);
+        } catch (error) {
+            console.error("Error fetching order stats:", error);
+            res.status(500).send({ message: "Internal Server Error" });
+        }
+    });
 
     // Start the server only after the database connection is successful
     app.listen(port, () => {
