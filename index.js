@@ -101,9 +101,7 @@ async function run() {
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
-
-    // Cart Route
-    // add card
+    // Cart Routes
     app.post("/cart/add", verifyToken, async (req, res) => {
       try {
         const { userEmail, productId, quantity } = req.body;
@@ -122,17 +120,24 @@ async function run() {
         }
 
         const userCart = await cartdb.findOne({ userEmail: userEmail });
+        const itemDetails = {
+          _id: product._id,
+          foodName: product.foodName,
+          foodImage: product.foodImage,
+          price: product.price,
+          quantity: quantity
+        };
 
         if (userCart) {
           const existingItemIndex = userCart.items.findIndex(
-            (item) => item.productId.toString() === productId
+            (item) => item._id.toString() === productId
           );
 
           if (existingItemIndex > -1) {
             await cartdb.updateOne(
               {
                 userEmail: userEmail,
-                "items.productId": new ObjectId(productId),
+                "items._id": new ObjectId(productId),
               },
               { $inc: { "items.$.quantity": quantity } }
             );
@@ -141,11 +146,7 @@ async function run() {
               { userEmail: userEmail },
               {
                 $push: {
-                  items: {
-                    productId: new ObjectId(productId),
-                    quantity: quantity,
-                    ...product,
-                  },
+                  items: itemDetails,
                 },
               }
             );
@@ -154,13 +155,7 @@ async function run() {
         } else {
           await cartdb.insertOne({
             userEmail: userEmail,
-            items: [
-              {
-                productId: new ObjectId(productId),
-                quantity: quantity,
-                ...product,
-              },
-            ],
+            items: [itemDetails],
           });
           res.status(201).json({ message: "Product added to your cart." });
         }
@@ -170,7 +165,6 @@ async function run() {
       }
     });
 
-    // fetch card
     app.get("/cart/:email", verifyToken, async (req, res) => {
       try {
         const email = req.params.email;
@@ -193,7 +187,6 @@ async function run() {
       }
     });
 
-    // delete Cart
     app.delete("/cart/remove", verifyToken, async (req, res) => {
       try {
         const { userEmail, productId } = req.body;
@@ -208,7 +201,7 @@ async function run() {
           { userEmail: userEmail },
           {
             $pull: {
-              items: { productId: new ObjectId(productId) },
+              items: { _id: new ObjectId(productId) },
             },
           }
         );
@@ -228,7 +221,7 @@ async function run() {
       }
     });
 
-    // Checkout
+    // Checkout Routes
     app.post("/checkout", verifyToken, async (req, res) => {
       try {
         const { userEmail } = req.body;
@@ -253,15 +246,18 @@ async function run() {
         await ordersdb.insertOne(order);
 
         for (const item of userCart.items) {
-          await topsell.updateOne(
-            { _id: item._id },
-            {
-              $inc: {
-                sold: Number(item.quantity),
-                purchaseCount: Number(item.quantity),
-              },
-            }
-          );
+          const foodItem = await topsell.findOne({ _id: item._id });
+          if (foodItem) {
+            await topsell.updateOne(
+              { _id: item._id },
+              {
+                $inc: {
+                  sold: Number(item.quantity),
+                  purchaseCount: Number(item.quantity),
+                },
+              }
+            );
+          }
         }
 
         await cartdb.updateOne({ userEmail }, { $set: { items: [] } });
@@ -278,7 +274,7 @@ async function run() {
       }
     });
 
-    app.get("/checkout/:email", async (req, res) => {
+    app.get("/checkout/:email", verifyToken, async (req, res) => {
       try {
         const email = req.params.email;
         if (!email) {
