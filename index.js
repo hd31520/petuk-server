@@ -55,6 +55,7 @@ async function run() {
     const topsell = database.collection("top_sell");
     const cartdb = database.collection("cartdb");
     const ordersdb = database.collection("ordersdb");
+    const userdb = database.collection("userdb");
 
     // --- All Routes Should Be Defined Here, After DB Connection ---
 
@@ -278,13 +279,13 @@ async function run() {
     app.get("/checkout/:email", async (req, res) => {
       try {
         const email = req.params.email;
-         console.log(email)
+        console.log(email);
 
         if (!email) {
           return res.status(400).json({ message: "Email is required." });
         }
 
-        const orders = await ordersdb.find({ userEmail: email }).toArray();;
+        const orders = await ordersdb.find({ userEmail: email }).toArray();
         // console.log(orders)
 
         if (!orders || orders.length === 0) {
@@ -345,54 +346,98 @@ async function run() {
       }
     });
 
-
-
-    app.get('/my-added/:email', verifyToken, async (req, res) => {
-    try {
+    app.get("/my-added/:email", verifyToken, async (req, res) => {
+      try {
         const email = req.params.email;
 
         if (!email) {
-            return res.status(400).json({ message: "Email is required" });
+          return res.status(400).json({ message: "Email is required" });
         }
 
         const result = await topsell.find({ "addedBy.email": email }).toArray();
 
         res.status(200).json(result);
-    } catch (error) {
-        console.error('Error fetching user added products:', error);
-        res.status(500).json({ message: 'Internal server error' });
-    }
-});
+      } catch (error) {
+        console.error("Error fetching user added products:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    });
 
+    app.delete("/food/delete/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      try {
+        const result = await topsell.deleteOne({ _id: new ObjectId(id) });
+        res.send(result);
+      } catch (error) {
+        console.error("Delete error:", error);
+        res.status(500).json({ message: "Failed to delete product" });
+      }
+    });
 
-app.delete("/food/delete/:id", verifyToken, async (req, res) => {
-  const id = req.params.id;
-  try {
-    const result = await topsell.deleteOne({ _id: new ObjectId(id) });
-    res.send(result);
-  } catch (error) {
-    console.error("Delete error:", error);
-    res.status(500).json({ message: "Failed to delete product" });
-  }
-});
+    app.put("/food/edit/:id", async (req, res) => {
+      const id = req.params.id;
+      const updatedFood = req.body;
+      try {
+        const result = await topsell.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedFood }
+        );
+        res.send(result);
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Failed to update food item" });
+      }
+    });
+    // New middleware to verify if the user is an admin
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const user = await userdb.findOne({ email: email });
+      if (user?.role !== "admin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
 
+    // --- New User Management Routes ---
 
+    // Save new user on registration
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      const query = { email: user.email };
+      const existingUser = await userdb.findOne(query);
+      if (existingUser) {
+        return res.send({ message: "User already exists", insertedId: null });
+      }
+      user.role = "user"; // Assign a default role
+      const result = await userdb.insertOne(user);
+      res.send(result);
+    });
 
-app.put('/food/edit/:id', async (req, res) => {
-  const id = req.params.id;
-  const updatedFood = req.body;
-  try {
-    const result = await topsell.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updatedFood }
-    );
-    res.send(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to update food item" });
-  }
-});
+    // Get all users (Admin only)
+    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
+      const result = await userdb.find().toArray();
+      res.send(result);
+    });
 
+    // Update user role to admin (Admin only)
+    app.patch("/users/role/:id", verifyToken, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const { role } = req.body;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: { role: role },
+      };
+      const result = await userdb.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    // Delete a user (Admin only)
+    app.delete("/users/:id", verifyToken, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await userdb.deleteOne(query);
+      res.send(result);
+    });
 
     // End
 
