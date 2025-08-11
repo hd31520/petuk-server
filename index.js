@@ -22,14 +22,12 @@ app.post("/jwt", async (req, res) => {
   res.send({ token });
 });
 
-// Middleware
+// Middleware to verify the JWT token
 const verifyToken = (req, res, next) => {
   if (!req.headers.authorization) {
     return res.status(401).send({ message: "unauthorized access" });
   }
   const token = req.headers.authorization.split(" ")[1];
-  console.log("inside token", token);
-
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
     if (err) {
       return res.status(401).send({ message: "unauthorized Access" });
@@ -57,6 +55,23 @@ async function run() {
     const ordersdb = database.collection("ordersdb");
     const userdb = database.collection("userdb");
 
+    // New middleware to verify if the user is an admin
+    const verifyAdmin = async (req, res, next) => {
+        try {
+            const email = req.decoded.email;
+            const user = await userdb.findOne({ email });
+
+            if (user && user.role === 'admin') {
+                next();
+            } else {
+                return res.status(403).send({ message: "Forbidden: You are not an admin" });
+            }
+        } catch (error) {
+            console.error("Error in verifyAdmin middleware:", error);
+            res.status(500).send({ message: "Internal Server Error" });
+        }
+    };
+
     // --- All Routes Should Be Defined Here, After DB Connection ---
 
     // Root route
@@ -73,16 +88,7 @@ async function run() {
     app.get("/foods/:id", async (req, res) => {
       try {
         const id = req.params.id;
-        const query = { _id: id };
-        if (!query) {
-          const query1 = { _id: new ObjectId(id) };
-          const result1 = await topsell.findOne(query1);
-          if (result1) {
-            res.status(200).json(result1);
-          } else {
-            res.status(404).json({ message: "Document not found" });
-          }
-        }
+        const query = { _id: new ObjectId(id) };
         const result = await topsell.findOne(query);
 
         if (result) {
@@ -101,15 +107,13 @@ async function run() {
     app.post("/cart/add", verifyToken, async (req, res) => {
       try {
         const { userEmail, productId, quantity } = req.body;
-        console.log(userEmail);
-
         if (!userEmail || !productId || !quantity) {
           return res
             .status(400)
             .json({ message: "Email, productId, and quantity are required." });
         }
 
-        const product = await topsell.findOne({ _id: productId });
+        const product = await topsell.findOne({ _id: new ObjectId(productId) });
 
         if (!product) {
           return res
@@ -130,7 +134,7 @@ async function run() {
                 userEmail: userEmail,
                 "items.productId": new ObjectId(productId),
               },
-              { $inc: { "items.$.quantity": 1 } } // increment by 1 or quantity from body
+              { $inc: { "items.$.quantity": quantity } }
             );
           } else {
             await cartdb.updateOne(
@@ -165,6 +169,7 @@ async function run() {
         res.status(500).json({ message: "A server error occurred." });
       }
     });
+
     // fetch card
     app.get("/cart/:email", verifyToken, async (req, res) => {
       try {
@@ -223,7 +228,7 @@ async function run() {
       }
     });
 
-    // Praced
+    // Checkout
     app.post("/checkout", verifyToken, async (req, res) => {
       try {
         const { userEmail } = req.body;
@@ -250,7 +255,6 @@ async function run() {
         for (const item of userCart.items) {
           await topsell.updateOne(
             { _id: item._id },
-
             {
               $inc: {
                 sold: Number(item.quantity),
@@ -274,19 +278,14 @@ async function run() {
       }
     });
 
-    const { ObjectId } = require("mongodb");
-
     app.get("/checkout/:email", async (req, res) => {
       try {
         const email = req.params.email;
-        console.log(email);
-
         if (!email) {
           return res.status(400).json({ message: "Email is required." });
         }
 
         const orders = await ordersdb.find({ userEmail: email }).toArray();
-        // console.log(orders)
 
         if (!orders || orders.length === 0) {
           return res
@@ -303,7 +302,7 @@ async function run() {
       }
     });
 
-    //  add food
+    // add food
     app.post("/add/topfood", verifyToken, async (req, res) => {
       try {
         const newFood = req.body;
@@ -388,17 +387,8 @@ async function run() {
         res.status(500).json({ message: "Failed to update food item" });
       }
     });
-    // New middleware to verify if the user is an admin
-    const verifyAdmin = async (req, res, next) => {
-      const email = req.decoded.email;
-      const user = await userdb.findOne({ email: email });
-      if (user?.role !== "admin") {
-        return res.status(403).send({ message: "forbidden access" });
-      }
-      next();
-    };
 
-    // --- New User Management Routes ---
+    // --- User Management Routes ---
 
     // Save new user on registration
     app.post("/users", async (req, res) => {
@@ -413,13 +403,28 @@ async function run() {
       res.send(result);
     });
 
+    // Get a user's role
+    app.get("/users/role", verifyToken, async (req, res) => {
+        try {
+            const email = req.decoded.email;
+            const user = await userdb.findOne({ email });
+            if (!user) {
+                return res.status(404).send({ message: "User not found" });
+            }
+            res.send({ role: user.role });
+        } catch (error) {
+            console.error("Error fetching user role:", error);
+            res.status(500).send({ message: "Internal Server Error" });
+        }
+    });
+
     // Get all users (Admin only)
     app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
       const result = await userdb.find().toArray();
       res.send(result);
     });
 
-    // Update user role to admin (Admin only)
+    // Update user role (Admin only)
     app.patch("/users/role/:id", verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const { role } = req.body;
@@ -438,14 +443,6 @@ async function run() {
       const result = await userdb.deleteOne(query);
       res.send(result);
     });
-
-    // End
-
-    // Server Health Check and Confirmation
-    // await client.db("admin").command({ ping: 1 });
-    // console.log(
-    //   "Pinged your deployment. You successfully connected to MongoDB!"
-    // );
 
     // Start the server only after the database connection is successful
     app.listen(port, () => {
